@@ -51,6 +51,10 @@ class MainActivity : ComponentActivity() {
         // Request SMS permissions if needed
         requestSmsPermissionsIfNeeded()
 
+        // Starting API polling
+        val smsReceiver = SMSReceiver()
+        smsReceiver.schedulePeriodicHttpRequest()
+
         enableEdgeToEdge()
         setContent {
             POCSMSlistenerTheme {
