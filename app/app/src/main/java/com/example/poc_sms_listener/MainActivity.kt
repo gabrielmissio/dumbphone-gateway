@@ -52,8 +52,8 @@ class MainActivity : ComponentActivity() {
         requestSmsPermissionsIfNeeded()
 
         // Starting API polling
-        val smsReceiver = SMSReceiver()
-        smsReceiver.schedulePeriodicHttpRequest()
+        val callbackPoller = CallbackPoller(this)
+        callbackPoller.schedulePeriodicHttpRequest()
 
         enableEdgeToEdge()
         setContent {

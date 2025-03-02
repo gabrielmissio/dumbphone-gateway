@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.telephony.SmsManager
 import android.telephony.SmsMessage
 import android.util.Log
 import okhttp3.Call
@@ -15,14 +14,9 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
-import java.util.Timer
-import java.util.TimerTask
-
-import com.google.gson.Gson
-import com.google.gson.annotations.SerializedName
 
 class SMSReceiver : BroadcastReceiver() {
-    val client = OkHttpClient()
+    private val client = OkHttpClient()
 
     override fun onReceive(context: Context?, intent: Intent?) {
         Log.d("SMSReceiver", "NEW SMS!!!")
@@ -40,6 +34,9 @@ class SMSReceiver : BroadcastReceiver() {
                             val phoneNumber = sms.originatingAddress
                             val messageBody = sms.messageBody
 
+                            // temp
+                            val targetPhoneNumber = "+5554999999999"
+
                             Log.d("SMSReceiver", "SMS from: $phoneNumber, body: $messageBody")
                             // Send a local broadcast to update the UI in MainActivity
                             val localIntent = Intent("com.example.poc_sms_listener.NEW_SMS").apply {
@@ -48,13 +45,15 @@ class SMSReceiver : BroadcastReceiver() {
                             }
                             context?.sendBroadcast(localIntent)
 
-                            sendSmsMessage(context, phoneNumber, messageBody)
-                            sendGetRequest()
+//                            sendSmsMessage(context, phoneNumber, messageBody)
                             // Create JSON payload with the sender and message content
                             val jsonPayload = """
                                 {
-                                    "sender": "$phoneNumber",
-                                    "message": "$messageBody"
+                                    "service": "whatsapp",
+                                    "payload": {
+                                        "phoneNumber": "$targetPhoneNumber",
+                                        "message": "$messageBody"
+                                    }
                                 }
                             """.trimIndent()
                             sendWhatsappMessage(jsonPayload)
@@ -70,24 +69,9 @@ class SMSReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun sendSmsMessage(context: Context?, phoneNumber: String?, text: String) {
-        Log.d("SMSReceiver", "Trying to answer")
-        // We need a non-null Context to safely use SmsManager
-        context?.let {
-            val smsManager = SmsManager.getDefault()
-            smsManager.sendTextMessage(
-                phoneNumber, // destinationAddress
-                null,
-                text, // body message
-                null,
-                null
-            )
-        }
-    }
-
     private fun sendWhatsappMessage(jsonPayload: String) {
         Log.d("SMSReceiver", "sendPostRequest")
-        val url = "http://192.168.0.220:3000/check"
+        val url = "http://192.168.0.195:3000/v1/command"
 
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val requestBody = jsonPayload.toRequestBody(mediaType)
@@ -111,144 +95,6 @@ class SMSReceiver : BroadcastReceiver() {
                         Log.d("SMSReceiver HTTP", "Unexpected code $response")
                     } else {
                         Log.d("SMSReceiver HTTP", "Response: ${it.body?.string()}")
-                    }
-                }
-            }
-        })
-    }
-
-    private fun handleCallbackQueue() {
-        Log.d("SMSReceiver", "handleCallbackQueue")
-
-        // Data classes representing the expected JSON structure.
-        data class CallbackItem(
-            @SerializedName("id") val id: String,
-            @SerializedName("phoneNumber") val phoneNumber: String,
-            @SerializedName("message") val message: String
-        )
-
-        data class CallbacksResponse(
-            @SerializedName("data") val data: List<CallbackItem>
-        )
-        // call GET /v1/callbacks/
-        // call sendSMSMessage to each callback (field data into the response body, its an array). then call DELETE /v1/callbacks/:id to remove the callback
-        val url = "http://192.168.0.220:3000/v1/callbacks"
-
-        // Build the GET request. (GET is the default method.)
-        val request = Request.Builder()
-            .url(url)
-            .build()
-
-        // Execute the request asynchronously
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                // Log or handle the error appropriately
-                e.printStackTrace()
-                Log.d("SMSReceiver", e.toString())
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (!it.isSuccessful) {
-                        // Log unexpected response codes
-                        Log.d("SMSReceiver","Unexpected code: ${it.code}")
-                    } else {
-                        // Process and log the response body
-                        val responseBody = it.body?.string()
-                        Log.d("SMSReceiver","Response: $responseBody")
-
-                        // iterate over the array of callbacks
-
-                        try {
-                            // Parse the JSON response using Gson.
-                            val gson = Gson()
-                            val callbacksResponse = gson.fromJson(responseBody, CallbacksResponse::class.java)
-
-                            // Iterate over each callback.
-                            callbacksResponse.data.forEach { callback ->
-                                // Call sendSMSMessage for each callback.
-                                // sendSmsMessage()
-
-                                Log.d("SMSReceiver", "just saying, you good bro!")
-
-                                // Delete the callback after processing.
-                                deleteCallback(callback.id)
-                            }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-
-                    }
-                }
-            }
-        })
-    }
-
-    fun schedulePeriodicHttpRequest() {
-        Log.d("SMSReceiver", "calling schedulePeriodicHttpRequest")
-        val timer = Timer()
-        timer.schedule(object : TimerTask() {
-            override fun run() {
-                Log.d("SMSReceiver", "Checking for callbacks")
-                // This function will be called every 5 seconds
-                handleCallbackQueue()
-            }
-        }, 0, 15000)  // delay 0ms, period 5000ms (5 seconds)
-    }
-
-    private fun sendGetRequest() {
-        val url = "http://192.168.0.220:3000/check"
-
-        // Build the GET request. (GET is the default method.)
-        val request = Request.Builder()
-            .url(url)
-            .build()
-
-        // Execute the request asynchronously
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                // Log or handle the error appropriately
-                e.printStackTrace()
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (!it.isSuccessful) {
-                        // Log unexpected response codes
-                        Log.d("SMSReceiver", "Unexpected code: ${it.code}")
-                    } else {
-                        // Process and log the response body
-                        val responseBody = it.body?.string()
-                        Log.d("SMSReceiver","Response: $responseBody")
-                    }
-                }
-            }
-        })
-    }
-
-    private fun deleteCallback(callbackId: String) {
-        // URL for DELETE /v1/callbacks/:id
-        val url = "http://192.168.0.220:3000/v1/callbacks/$callbackId"
-
-        // Build the DELETE request.
-        val request = Request.Builder()
-            .url(url)
-            .delete()
-            .build()
-
-        // Execute the DELETE request asynchronously.
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                // Log or handle the error appropriately
-                e.printStackTrace()
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (!it.isSuccessful) {
-                        println("Failed to delete callback with id $callbackId: ${it.code}")
-                    } else {
-                        println("Callback with id $callbackId deleted successfully.")
                     }
                 }
             }
